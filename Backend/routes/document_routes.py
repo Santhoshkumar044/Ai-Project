@@ -23,14 +23,3 @@ async def upload_file(file: UploadFile = File(...)):
         "summary": response,
         "pages": len(uploaded_text.split("\n")) // 40
     }
-
-
-@router.post("/chat")
-async def chat(req: ChatRequest):
-    global uploaded_text
-
-    if not uploaded_text:
-        return {"error": "No document uploaded yet."}
-
-    response = generate_response(uploaded_text, message=req.message)
-    return {"response": response}

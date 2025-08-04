@@ -12,9 +12,11 @@ client = OpenAI(
 )
 
 def generate_response(uploaded_text: str, message: str = "", prompt_type="qa"):
-    trimmed_text = uploaded_text[:12000]
+    trimmed_text = uploaded_text[:12000] if uploaded_text else ""
 
-    if prompt_type == "summary" or message.strip() == "":
+    if not trimmed_text:  # No document provided
+        prompt = f"Answer the following question:\n\n{message}"
+    elif prompt_type == "summary" or message.strip() == "":
         prompt = f"Summarize the following document:\n\n{trimmed_text}"
     else:
         prompt = f"Based on the following document, answer this:\n{message}\n\nDocument:\n{trimmed_text}"
