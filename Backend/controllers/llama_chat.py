@@ -4,46 +4,62 @@ import textwrap
 import json
 from dotenv import load_dotenv
 from openai import OpenAI
+import tiktoken  # ✅ For token-safe trimming
 
 # Load environment variables
 load_dotenv()
-
 HF_TOKEN = os.getenv("HF_TOKEN")
 
-# Initialize OpenAI-compatible client for HuggingFace
+# HuggingFace-compatible OpenAI client
 client = OpenAI(
     base_url="https://router.huggingface.co/v1",
     api_key=HF_TOKEN,
 )
 
+# ✅ Clean messy model output
 def clean_text(text):
-    """Remove unwanted characters like *, \, excessive whitespace."""
-    text = text.replace('\\', '')  # Remove backslashes
-    text = text.replace('*', '')   # Remove asterisks
-    text = re.sub(r'\s+', ' ', text)  # Normalize whitespace
+    text = text.replace('\\', '')
+    text = text.replace('*', '')
+    text = re.sub(r'\s+', ' ', text)
     return text.strip()
 
-def generate_response(uploaded_text: str, message: str = "", prompt_type="qa"):
-    trimmed_text = uploaded_text[:12000] if uploaded_text else ""
+# ✅ Token-safe text trimming for models with 8k limit
+def trim_to_token_limit(text: str, max_tokens: int = 7000) -> str:
+    enc = tiktoken.encoding_for_model("gpt-3.5-turbo")  # works well with most models
+    tokens = enc.encode(text)
+    trimmed_tokens = tokens[:max_tokens]
+    return enc.decode(trimmed_tokens)
 
-    # Construct prompt
-    if not trimmed_text:
+# ✅ Main response function
+def generate_response(uploaded_text: str, message: str = "", prompt_type="qa", full_prompt: str = None):
+    trimmed_text = trim_to_token_limit(uploaded_text, max_tokens=7000) if uploaded_text else ""
+
+    # ✅ Prioritize full custom prompt
+    if full_prompt:
+        prompt = full_prompt
+    elif not trimmed_text:
         prompt = f"Answer the following question:\n\n{message}"
     elif prompt_type == "summary" or message.strip() == "":
         prompt = f"Summarize the following document:\n\n{trimmed_text}"
     else:
-        prompt = f"Based on the following document, answer this:\n{message}\n\nDocument:\n{trimmed_text}"
+        prompt = (
+            f"You are an insurance assistant. Based only on the document below, answer the question:\n\n"
+            f"Question: {message}\n\n"
+            f"Document:\n{trimmed_text}"
+        )
 
-    # Call the model
-    completion = client.chat.completions.create(
-        model="meta-llama/Meta-Llama-3-8B-Instruct:novita",
-        messages=[{"role": "user", "content": prompt}]
-    )
+    # 🔁 Model call
+    try:
+        completion = client.chat.completions.create(
+            model="meta-llama/Meta-Llama-3-8B-Instruct:novita",
+            messages=[{"role": "user", "content": prompt}]
+        )
+    except Exception as e:
+        return [f"LLM processing failed. Error: {str(e)}"]
 
-    # Get the raw response
     response_text = completion.choices[0].message.content.strip()
 
-    # Try parsing as JSON if it's a dict (like {"summary": [...], "pages": ...})
+    # ✅ Try JSON response parsing
     try:
         parsed = json.loads(response_text)
         if isinstance(parsed, dict) and "summary" in parsed:
@@ -51,11 +67,9 @@ def generate_response(uploaded_text: str, message: str = "", prompt_type="qa"):
             if isinstance(summary, list):
                 return [clean_text(item) for item in summary]
             elif isinstance(summary, str):
-                summary = clean_text(summary)
-                return textwrap.wrap(summary, width=1000)
+                return textwrap.wrap(clean_text(summary), width=1000)
     except Exception:
-        pass  # Not JSON, continue with normal flow
+        pass
 
-    # Clean and chunk plain response
-    clean = clean_text(response_text)
-    return textwrap.wrap(clean, width=1000)
+    # ✅ Fallback to plain text
+    return textwrap.wrap(clean_text(response_text), width=1000)

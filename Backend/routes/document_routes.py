@@ -1,25 +1,68 @@
-from fastapi import APIRouter, UploadFile, File
-from model.chat_model import ChatRequest
+from fastapi import APIRouter
+from pydantic import BaseModel
 from controllers.file_parser import extract_text_from_file
-from controllers.llama_chat import generate_response
-import io
+from controllers.llama_chat import generate_response, trim_to_token_limit  # ✅ import the helper
+import httpx
 
 router = APIRouter()
-uploaded_text = ""  # simple in-memory storage
+uploaded_text = ""
 
+class DocQueryRequest(BaseModel):
+    url: str
+    question: str | None = None
 
-@router.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
+@router.post("/hackrx/run")
+async def process_document_from_url(request: DocQueryRequest):
     global uploaded_text
-    file_bytes = await file.read()
-    uploaded_text = extract_text_from_file(file.filename, file_bytes).strip()
+    url = request.url
+    question = request.question
 
+    # Download the file
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url)
+        if response.status_code != 200:
+            return {"error": "Failed to download document from URL."}
+        file_bytes = response.content
+
+    # Extract file name
+    filename = url.split("?")[0].split("/")[-1] or "document.pdf"
+
+    # Extract and clean text
+    uploaded_text = extract_text_from_file(filename, file_bytes).strip()
     if not uploaded_text:
         return {"error": "Failed to extract text from document."}
 
-    response = generate_response(uploaded_text, prompt_type="summary")
+    # ✅ If user asks a question, trim the document before adding to full prompt
+    if question:
+        safe_text = trim_to_token_limit(uploaded_text, max_tokens=7000)  # Token-safe
+        prompt = (
+            "You are an insurance assistant. Read the document below and "
+            "answer the user's question using only the document's content.\n\n"
+            f"Document:\n{safe_text}\n\n"
+            f"Question: {question}\nAnswer:"
+        )
+        try:
+            result = generate_response(
+                uploaded_text=uploaded_text,
+                prompt_type="custom",
+                full_prompt=prompt
+            )
+        except Exception as e:
+            return {
+                "error": "LLM processing failed.",
+                "details": str(e)
+            }
 
+        return {
+            "answer": result,
+            "pages": len(uploaded_text.split("\n")) // 40,
+            "source_url": url
+        }
+
+    # ✅ Otherwise, just summarize the full (trimmed) doc
+    result = generate_response(uploaded_text, prompt_type="summary")
     return {
-        "summary": response,
-        "pages": len(uploaded_text.split("\n")) // 40
+        "summary": result,
+        "pages": len(uploaded_text.split("\n")) // 40,
+        "source_url": url
     }
