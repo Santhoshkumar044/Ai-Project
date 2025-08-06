@@ -15,7 +15,7 @@ class DocQueryRequest(BaseModel):
 
 router = APIRouter()
 
-@router.post("/postdoc")
+@router.post("/hackrx/run")
 async def process_doc_from_url(request:DocQueryRequest):
     url = request.url
     questions = request.questions
