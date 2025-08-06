@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from routes import document_routes,chat
+from routes import document_routes,chat,pinecone_routes
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
@@ -13,3 +13,4 @@ app.add_middleware(
 
 app.include_router(document_routes.router,prefix="/api/v1")
 app.include_router(chat.router,prefix="/api/v1")
+app.include_router(pinecone_routes.router,prefix="/api/v1")

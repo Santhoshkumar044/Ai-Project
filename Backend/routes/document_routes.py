@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from controllers.file_parser import extract_text_from_file
 from controllers.llama_chat import generate_response, trim_to_token_limit  # ✅ import the helper
 import httpx
+from controllers.pinecone_helpers import read_pdf_from_url_or_path
 
 router = APIRouter()
 uploaded_text = ""
@@ -11,6 +12,7 @@ uploaded_text = ""
 class DocQueryRequest(BaseModel):
     documents: str
     questions: List[str] | None = None
+
 
 @router.post("/hackrx/run")
 async def process_document_from_url(request: DocQueryRequest):
