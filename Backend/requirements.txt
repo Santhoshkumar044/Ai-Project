@@ -11,4 +11,3 @@ openai==1.98.0
 sentence-transformers==2.6.1
 pinecone==3.2.2
 requests==2.32.3
-

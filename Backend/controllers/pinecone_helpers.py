@@ -10,6 +10,7 @@ from pinecone import Pinecone, ServerlessSpec
 import PyPDF2
 from pinecone import Pinecone, ServerlessSpec
 from sentence_transformers import SentenceTransformer
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -49,7 +50,6 @@ def clean_text(text: str) -> str:
     text = text.replace('\\', '').replace('*', '')
     return re.sub(r'\s+', ' ', text).strip()
 
-from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 def chunk_text(text: str, chunk_size: int = 800, chunk_overlap: int = 100) -> List[str]:
     splitter = RecursiveCharacterTextSplitter(
