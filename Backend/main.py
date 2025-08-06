@@ -11,6 +11,6 @@ app.add_middleware(
     allow_headers=["*"],  # <- Allow all headers
 )
 
-app.include_router(document_routes.router,prefix="/api/v1")
+# app.include_router(document_routes.router,prefix="/api/v1")
 app.include_router(chat.router,prefix="/api/v1")
 app.include_router(pinecone_routes.router,prefix="/api/v1")
