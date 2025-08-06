@@ -7,15 +7,17 @@ from io import BytesIO
 from typing import List
 from sentence_transformers import SentenceTransformer
 from pinecone import Pinecone, ServerlessSpec
-
-
-import tiktoken
 import PyPDF2
 from pinecone import Pinecone, ServerlessSpec
 from sentence_transformers import SentenceTransformer
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+HF_TOKEN = os.getenv("PINECONE_API_KEY")
 
 # ============ Configuration ============ #
-PINECONE_API_KEY = "pcsk_5eZ6Mn_9qEdhgRUVUGwaT2SyYntXWz7ZENoSsyfmRmuVNuo5bgsYAGuGv3qPsQUbbXumtQ"
+PINECONE_API_KEY = HF_TOKEN
 PINECONE_ENV = "us-east-1"
 INDEX_NAME = "policy-check"
 EMBED_DIM = 384
@@ -36,7 +38,6 @@ def setup():
             metric="cosine",
             spec=ServerlessSpec(cloud="aws", region=PINECONE_ENV)
         )
-        print("⏳ Waiting for index to be ready...")
         while not pc.describe_index(INDEX_NAME).status['ready']:
             time.sleep(2)
 
@@ -88,7 +89,6 @@ def store_chunks(chunks: List[str], batch_size: int = 100):
         # Upsert in batches
         if len(vectors) == batch_size or i == len(chunks) - 1:
             index.upsert(vectors, namespace="policy")
-            print(f"✅ Upserted {len(vectors)} chunks")
             vectors = []
 def clear_namespace():
     index.delete(delete_all=True, namespace="policy")
@@ -101,14 +101,12 @@ def store_chunk(chunk_text: str):
         "values": vector,
         "metadata": {"text": chunk_text}
     }],namespace="policy")
-    print(f"✅ Stored chunk '{chunk_id}'")
 
 def search_similar_chunks(query_text: str, top_k: int = 1) -> str:
     vector = embed_text(query_text)
     results = index.query(vector=vector, top_k=top_k, include_metadata=True,namespace="policy")
     matches = results.get("matches", [])
     if not matches:
-        print("❌ No matches found.")
         return "No relevant answer found."
     top_match = matches[0]
     return top_match['metadata']['text']
@@ -116,16 +114,10 @@ def search_similar_chunks(query_text: str, top_k: int = 1) -> str:
 # ============ Main Pipeline ============ #
 def process_document_for_pinecone(input_path: str, questions: List[str]) -> List[str]:
         setup()
-        print("SETUP CALLED")
         raw_text = read_pdf_from_url_or_path(input_path)
         cleaned_text = clean_text(raw_text)
         chunks = chunk_text(cleaned_text)
-
-        print("CHUNNK GENERATED once")
-        print("CHUNNK GENERATED")
-
         clear_namespace()
-        print("CLEARE THE OLD")
         store_chunks(chunks=chunks)
         answers = []
         for question in questions:
@@ -138,7 +130,6 @@ if __name__ =="__main__":
 
     # ✅ Initialize Pinecone and index
     pc = Pinecone(api_key=PINECONE_API_KEY)
-    print("INITIALIZED")
 
     if INDEX_NAME not in [i.name for i in pc.list_indexes()]:
         pc.create_index(
@@ -147,10 +138,8 @@ if __name__ =="__main__":
             metric="cosine",
             spec=ServerlessSpec(cloud="aws", region=PINECONE_ENV)
         )
-        print("⏳ Waiting for index to be ready...")
         while not pc.describe_index(INDEX_NAME).status['ready']:
             time.sleep(2)
 
-    # ✅ Get index client and model
     index = pc.Index(INDEX_NAME)
     model = SentenceTransformer(EMBEDDING_MODEL_NAME)
