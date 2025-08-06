@@ -15,6 +15,20 @@ client = OpenAI(
     base_url="https://router.huggingface.co/v1",
     api_key=HF_TOKEN,
 )
+#To convert the document into ch
+def chunk_text(text, max_tokens=300, overlap=50, model="gpt-3.5-turbo"):
+    enc = tiktoken.encoding_for_model(model)
+    tokens = enc.encode(text)
+
+    chunks = []
+    start = 0
+    while start < len(tokens):
+        end = min(start + max_tokens, len(tokens))
+        chunk = tokens[start:end]
+        chunks.append(enc.decode(chunk))
+        start += max_tokens - overlap
+    return chunks
+
 
 # ✅ Clean messy model output
 def clean_text(text):
