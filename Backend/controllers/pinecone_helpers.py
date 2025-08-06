@@ -21,39 +21,42 @@ INDEX_NAME = "policy-check"
 EMBED_DIM = 384
 EMBEDDING_MODEL_NAME = 'all-MiniLM-L6-v2'
 
-# ============ Pinecone Setup ============ #
-pc = Pinecone(api_key=PINECONE_API_KEY)
+# Global placeholders
+index = None
+model = None
 
-if INDEX_NAME not in [i.name for i in pc.list_indexes()]:
-    pc.create_index(
-        name=INDEX_NAME,
-        dimension=EMBED_DIM,
-        metric="cosine",
-        spec=ServerlessSpec(cloud="aws", region=PINECONE_ENV)
-    )
-    print("⏳ Waiting for index to be ready...")
-    while not pc.describe_index(INDEX_NAME).status['ready']:
-        time.sleep(2)
+def setup():
+    global index, model
+    pc = Pinecone(api_key=PINECONE_API_KEY)
 
-index = pc.Index(INDEX_NAME)
-model = SentenceTransformer(EMBEDDING_MODEL_NAME)
+    if INDEX_NAME not in [i.name for i in pc.list_indexes()]:
+        pc.create_index(
+            name=INDEX_NAME,
+            dimension=EMBED_DIM,
+            metric="cosine",
+            spec=ServerlessSpec(cloud="aws", region=PINECONE_ENV)
+        )
+        print("⏳ Waiting for index to be ready...")
+        while not pc.describe_index(INDEX_NAME).status['ready']:
+            time.sleep(2)
+
+    index = pc.Index(INDEX_NAME)
+    model = SentenceTransformer(EMBEDDING_MODEL_NAME)
 
 # ============ Utilities ============ #
 def clean_text(text: str) -> str:
     text = text.replace('\\', '').replace('*', '')
     return re.sub(r'\s+', ' ', text).strip()
 
-def chunk_text(text: str, max_tokens: int = 200, overlap: int = 50, model_name: str = "gpt-3.5-turbo") -> List[str]:
-    enc = tiktoken.encoding_for_model(model_name)
-    tokens = enc.encode(text)
-    chunks = []
-    start = 0
-    while start < len(tokens):
-        end = min(start + max_tokens, len(tokens))
-        chunk = tokens[start:end]
-        chunks.append(enc.decode(chunk))
-        start += max_tokens - overlap
-    return chunks
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+
+def chunk_text(text: str, chunk_size: int = 800, chunk_overlap: int = 100) -> List[str]:
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap
+    )
+    return splitter.split_text(text)
+
 
 def read_pdf_from_url_or_path(input_path: str) -> str:
     try:
@@ -72,10 +75,23 @@ def read_pdf_from_url_or_path(input_path: str) -> str:
 def embed_text(text: str) -> List[float]:
     return model.encode(text).tolist()
 
-def store_chunks(chunks: List[str]):
-    index.delete(delete_all=True)  # Clear index before storing new data
-    for chunk in chunks:
-        store_chunk(chunk)
+def store_chunks(chunks: List[str], batch_size: int = 100):
+    vectors = []
+    for i, chunk in enumerate(chunks):
+        vector = embed_text(chunk)
+        vectors.append({
+            "id": str(uuid.uuid4()),
+            "values": vector,
+            "metadata": {"text": chunk}
+        })
+
+        # Upsert in batches
+        if len(vectors) == batch_size or i == len(chunks) - 1:
+            index.upsert(vectors, namespace="policy")
+            print(f"✅ Upserted {len(vectors)} chunks")
+            vectors = []
+def clear_namespace():
+    index.delete(delete_all=True, namespace="policy")
 
 def store_chunk(chunk_text: str):
     chunk_id = str(uuid.uuid4())
@@ -95,20 +111,34 @@ def search_similar_chunks(query_text: str, top_k: int = 1) -> str:
         print("❌ No matches found.")
         return "No relevant answer found."
     top_match = matches[0]
-    print(f"🔍 Best match (score={top_match['score']:.3f}):\n{top_match['metadata']['text']}")
     return top_match['metadata']['text']
 
 # ============ Main Pipeline ============ #
 def process_document_for_pinecone(input_path: str, questions: List[str]) -> List[str]:
-    raw_text = read_pdf_from_url_or_path(input_path)
-    cleaned_text = clean_text(raw_text)
-    chunks = chunk_text(cleaned_text)
-    return chunks
+        setup()
+        print("SETUP CALLED")
+        raw_text = read_pdf_from_url_or_path(input_path)
+        cleaned_text = clean_text(raw_text)
+        chunks = chunk_text(cleaned_text)
+
+        print("CHUNNK GENERATED once")
+        print("CHUNNK GENERATED")
+
+        clear_namespace()
+        print("CLEARE THE OLD")
+        store_chunks(chunks=chunks)
+        answers = []
+        for question in questions:
+            answer = search_similar_chunks(question)
+            answers.append(answer)
+
+        return answers
 
 if __name__ =="__main__":
 
     # ✅ Initialize Pinecone and index
     pc = Pinecone(api_key=PINECONE_API_KEY)
+    print("INITIALIZED")
 
     if INDEX_NAME not in [i.name for i in pc.list_indexes()]:
         pc.create_index(
