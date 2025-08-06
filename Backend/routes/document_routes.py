@@ -14,7 +14,7 @@ class DocQueryRequest(BaseModel):
     questions: List[str] | None = None
 
 
-@router.post("/hackrx/run")
+@router.post("/hackrx")
 async def process_document_from_url(request: DocQueryRequest):
     global uploaded_text
     url = request.documents
